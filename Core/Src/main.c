@@ -68,13 +68,13 @@ void set_minus(int64_t);
 void set_long_number(int64_t);
 void reset_all();
 int64_t unpack_data(uint8_t*);
-void send_data(double, uint16_t) ;
+void pack_data(double) ;
 void set_to_empty(uint8_t*, uint16_t);
 void set_float_number(double);
 int64_t get_float_part(double);
-void send_minus(uint16_t);
-void send_number(int64_t, uint16_t);
-void send_dot(uint16_t);
+void add_minus();
+void add_number(int64_t);
+void add_dot();
 void set_dot();
 
 /* USER CODE END 0 */
@@ -91,6 +91,7 @@ uint8_t output_data[] = {'N', 0, 0, 0, 0, 0, 50, 'E'};
 uint8_t empty_data[] = {'N', 0, 0, 0, 0, 0, 0, 'E'};
 uint16_t input_package_size = 8;
 uint16_t output_package_size = 8;
+uint8_t pos = 1;
 
 int main(void)
 {
@@ -136,7 +137,7 @@ int main(void)
 
 
 	//  HAL_UART_Transmit_IT(&huart2, output_data, output_package_size);
-	  HAL_Delay(100);
+	  HAL_Delay(1);
 	  set_float_number(answer);
 
     /* USER CODE END WHILE */
@@ -151,43 +152,53 @@ int64_t unpack_data(uint8_t* data){
 	return (int64_t)((100000*(int64_t)(data[1] - '0'))+(10000*(int64_t)(data[2] - '0')) + (1000*(int64_t)(data[4] - '0')) + (100*(int64_t)(data[4] - '0'))+(10*(int64_t)(data[5] - '0')) + (int64_t)(data[6]-'0'));
 }
 
-void send_data(double data, uint16_t output_package_size) {
-	if (data < 0) send_minus(output_package_size);
-	HAL_Delay(1);
+void pack_data(double data) {
+	if (data < 0) add_minus();
 	if (abs(data) == 1) {
-		send_number(1, output_package_size);
-		HAL_Delay(1);
+		add_number(1);
 	} else {
-		send_number(0, output_package_size);
-		HAL_Delay(1);
-		send_dot(output_package_size);
-		HAL_Delay(1);
-		send_number((int)(data*1000), output_package_size);
-		//HAL_UART_Receive_IT(&huart2, input_data, input_package_size);
-		HAL_Delay(1);
+		add_number(0);
+		add_dot();
+		add_number((int)(abs(data*1000)));
 	}
 
 }
 
-void send_minus(uint16_t output_package_size) {
-	uint8_t* minus = {'N', 0, 0, 0, 0, 0, 45,'E'};
-	HAL_UART_Transmit_IT(&huart2, minus, output_package_size);
+void add_minus() {
+	output_data[pos] = 45;
+	pos++;
 }
 
-void send_dot(uint16_t output_package_size) {
-	uint8_t* dot = {'N', 0, 0, 0, 0, 0, 46,'E'};
-	HAL_UART_Transmit_IT(&huart2, dot, output_package_size);
+void add_dot() {
+	output_data[pos] = 46;
+	pos++;
 }
 
-void send_number(int64_t num, uint16_t output_package_size) {
-	uint8_t* package = {'N', 0, 0, 0, 0, 0, 0,'E'};
-	int64_t counter = 1;
-	while ((num/10) != 0) {
-		package[counter] = num % 10;
-		num /= 10;
+void add_number(int64_t num) {
+	if (num == 0) {
+		output_data[pos] = 48;
+		pos++;
+		return;
+	}
+
+	int64_t buffer = num;
+	int64_t digit_count = 0;
+
+	for (int i = 1; i <= 5; ++i) {
+	    if (buffer % 10) digit_count = i;
+	    buffer /= 10;
+	}
+
+	int64_t counter = 0;
+	int64_t module = pow(10, digit_count-1);
+
+	while (counter < digit_count) {
+		output_data[pos] = num / module + 48;
+		num = num % module;
+		module = module/10;
 		counter++;
+		pos++;
 	}
-	HAL_UART_Transmit_IT(&huart2, package, output_package_size);
 }
 
 void set_to_empty(uint8_t* array, uint16_t input_package_size) {
@@ -349,7 +360,7 @@ void reset_all() {
 }
 
 void set_minus(int64_t digit_count) {
-    set_screen(digit_count);
+    set_screen(digit_count+1);
     reset_number();
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_12, GPIO_PIN_RESET);
 }
@@ -523,20 +534,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 */
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	HAL_UART_Transmit_IT(&huart2, output_data, output_package_size);
 	count = unpack_data(input_data);
 	answer = sin(count);
-	send_data(answer, output_package_size);
+	pack_data(answer);
     HAL_UART_Transmit_IT(&huart2, output_data, output_package_size);
-
-}
-
-
-
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
-{
-  memset(input_data, 0, input_package_size); //тут мы почистили память, тут точно было накакано
-  HAL_UART_Receive_IT (&huart2, input_data, input_package_size); // запуск приема следующего пакета
+    pos = 0;
+    HAL_UART_Receive_IT(&huart2, input_data, input_package_size);
 }
 
 /* USER CODE END 4 */
